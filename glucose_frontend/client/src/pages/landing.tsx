@@ -1,3 +1,5 @@
+import { supabase } from '@/lib/supabase';
+import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Activity, LineChart, Shield, Bell, Users, TrendingUp } from 'lucide-react';
@@ -18,20 +20,36 @@ export default function Landing() {
   const [showSignup, setShowSignup] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setIsLoading(true);
-    const formData = new FormData(e.currentTarget);
-    await signIn(
-      formData.get('email') as string,
-      formData.get('password') as string
-    );
-    setIsLoading(false);
-    setShowLogin(false);
-    
-    // Redirect based on role after sign in
-    const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    setLocation(ROLE_DASHBOARDS[currentUser.role] || '/patient/dashboard');
+  const handleLogin = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setIsLoading(true);
+      
+      try {
+        // 1. Call the Real Supabase Login
+        const { error } = await supabase.auth.signInWithPassword({
+          email: formData.email,
+          password: formData.password,
+        });
+
+        if (error) {
+          throw error; // This triggers the catch block below
+        }
+
+        // 2. If successful, the AuthContext (App.tsx) detects the user and redirects automatically
+        toast({
+          title: "Welcome back",
+          description: "Successfully logged in",
+        });
+        
+      } catch (error: any) {
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: error.message || "Invalid credentials",
+        });
+      } finally {
+        setIsLoading(false);
+      }
   };
 
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
