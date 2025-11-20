@@ -10,41 +10,76 @@ import { Activity, TrendingUp, AlertTriangle, Lightbulb, UserCircle } from 'luci
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 
-// 1. New Imports to connect Backend
+// Connection Imports
 import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
 export default function PatientDashboard() {
   const { toast } = useToast();
-  const { user } = useAuth(); // Get the logged-in user
+  const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Mock data for display (You can replace this with a useEffect fetch later)
-  const stats = {
-    avgSugar: 125,
-    lastReading: 118,
-    abnormalities: 3,
-  };
+  // State to hold Real Data
+  const [readings, setReadings] = useState<any[]>([]);
+  const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [stats, setStats] = useState({ avgSugar: 0, lastReading: 0, abnormalities: 0 });
 
-  const chartData = [
-    { date: '11/14', value: 110 },
-    { date: '11/15', value: 135 },
-    { date: '11/16', value: 122 },
-    { date: '11/17', value: 145 },
-    { date: '11/18', value: 118 },
-    { date: '11/19', value: 128 },
-    { date: '11/20', value: 115 },
-  ];
+  // 1. FETCH DATA ON LOAD
+  useEffect(() => {
+    if (!user) return;
 
-  // Helper to auto-categorize for the Database
+    const fetchData = async () => {
+      // A. Fetch Readings
+      const { data: readingData } = await supabase
+        .from('blood_sugar_reading')
+        .select('*')
+        .eq('patient_id', user.id)
+        .order('timestamp', { ascending: true }); // Sort by date for the chart
+
+      if (readingData && readingData.length > 0) {
+        setReadings(readingData);
+
+        // Calculate Real Stats
+        const total = readingData.reduce((acc, r) => acc + r.value, 0);
+        const avg = Math.round(total / readingData.length);
+        const last = readingData[readingData.length - 1].value;
+        const abnormalCount = readingData.filter(r => r.category === 'Abnormal').length;
+
+        setStats({
+          avgSugar: avg,
+          lastReading: last,
+          abnormalities: abnormalCount
+        });
+      }
+
+      // B. Fetch AI Recommendations
+      const { data: recData } = await supabase
+        .from('recommendations')
+        .select('*')
+        .eq('patient_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (recData) setRecommendations(recData);
+    };
+
+    fetchData();
+  }, [user]);
+
+  // Helper for chart format
+  const chartData = readings.map(r => ({
+    date: new Date(r.timestamp).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }),
+    value: r.value
+  }));
+
+  // Helper to auto-categorize
   const getCategory = (val: number) => {
     if (val < 70 || val > 130) return 'Abnormal';
     if (val >= 70 && val <= 130) return 'Normal';
     return 'Borderline';
   };
 
-  // 2. The REAL Submit Logic
+  // 2. SUBMIT LOGIC
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!user) return;
@@ -54,65 +89,40 @@ export default function PatientDashboard() {
     const sugarValue = Number(formData.get('value'));
     
     try {
-      // Step A: Insert into Supabase
+      // Insert into Supabase
       const { error } = await supabase.from('blood_sugar_reading').insert({
-        patient_id: user.id, // Use the real User ID
+        patient_id: user.id,
         value: sugarValue,
         food_intake: formData.get('food'),
         activity: formData.get('activity'),
         notes: formData.get('notes'),
         category: getCategory(sugarValue),
-        // We use the date from form or current time
         timestamp: formData.get('date') ? new Date(formData.get('date') as string) : new Date()
       });
 
       if (error) throw error;
 
-      // Step B: Trigger the AI Backend
+      // Trigger AI
       try {
         await api.analyze(user.id);
-        toast({
-          title: 'Reading Logged & Analyzed',
-          description: 'AI has checked your reading for patterns.',
-        });
+        toast({ title: 'Reading Logged', description: 'AI is analyzing your patterns...' });
       } catch (aiError) {
-        console.error("AI Server Error", aiError);
-        toast({
-            title: 'Reading Saved',
-            description: 'Saved to database, but AI server is offline.',
-            variant: "destructive"
-          });
+        console.error("AI Server Error");
       }
 
-      (e.target as HTMLFormElement).reset();
+      // Refresh the page data immediately without reloading
+      window.location.reload(); 
 
     } catch (error: any) {
-      console.error(error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to save reading',
+        description: error.message,
         variant: "destructive"
       });
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  // Mock Recommendations (You can fetch real ones from 'recommendations' table later)
-  const recommendations = [
-    {
-      id: 1,
-      source: 'AI',
-      advice: 'Your blood sugar levels show a pattern of elevation after breakfast. Consider reducing carbohydrate intake in the morning and incorporating more protein.',
-      createdAt: '2024-11-19T10:30:00Z',
-    },
-    {
-      id: 2,
-      source: 'Specialist',
-      advice: 'Great progress this week! Continue with your current meal plan and exercise routine. Let\'s schedule a follow-up next month.',
-      createdAt: '2024-11-18T14:20:00Z',
-    },
-  ];
 
   return (
     <div className="space-y-6">
@@ -121,14 +131,14 @@ export default function PatientDashboard() {
         <p className="text-muted-foreground">Monitor your blood sugar levels and track your health progress</p>
       </div>
 
-      {/* Stats Cards */}
+      {/* Real Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <StatCard
           title="Average Sugar"
           value={stats.avgSugar}
           subtitle="mg/dL"
           icon={Activity}
-          trend={{ value: '↓ 5% from last week', isPositive: true }}
+          trend={{ value: 'Calculated from history', isPositive: true }}
         />
         <StatCard
           title="Last Reading"
@@ -139,15 +149,14 @@ export default function PatientDashboard() {
         <StatCard
           title="Abnormalities"
           value={stats.abnormalities}
-          subtitle="this week"
+          subtitle="total recorded"
           icon={AlertTriangle}
         />
       </div>
 
-      {/* Chart */}
+      {/* Real Chart */}
       <BloodSugarChart data={chartData} />
 
-      {/* Two Column Layout: Log Reading & Recommendations */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Log Reading Form */}
         <Card data-testid="card-log-reading">
@@ -159,103 +168,57 @@ export default function PatientDashboard() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="value">Blood Sugar (mg/dL)</Label>
-                  <Input
-                    id="value"
-                    name="value"
-                    type="number"
-                    required
-                    placeholder="120"
-                    data-testid="input-blood-sugar-value"
-                  />
+                  <Input id="value" name="value" type="number" required placeholder="120" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="date">Date & Time</Label>
-                  <Input
-                    id="date"
-                    name="date"
-                    type="datetime-local"
-                    required
-                    data-testid="input-date-time"
-                  />
+                  <Input id="date" name="date" type="datetime-local" required />
                 </div>
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="food">Food Intake</Label>
-                <Input
-                  id="food"
-                  name="food"
-                  placeholder="e.g., Oatmeal with berries"
-                  data-testid="input-food-intake"
-                />
+                <Input id="food" name="food" placeholder="e.g., Oatmeal" />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="activity">Physical Activity</Label>
-                <Input
-                  id="activity"
-                  name="activity"
-                  placeholder="e.g., 30 min walk"
-                  data-testid="input-activity"
-                />
+                <Input id="activity" name="activity" placeholder="e.g., Walking" />
               </div>
-
               <div className="space-y-2">
-                <Label htmlFor="notes">Notes (Optional)</Label>
-                <Textarea
-                  id="notes"
-                  name="notes"
-                  placeholder="Any additional observations..."
-                  rows={3}
-                  data-testid="input-notes"
-                />
+                <Label htmlFor="notes">Notes</Label>
+                <Textarea id="notes" name="notes" placeholder="Optional..." rows={3} />
               </div>
-
-              <Button type="submit" className="w-full" disabled={isSubmitting} data-testid="button-submit-reading">
+              <Button type="submit" className="w-full" disabled={isSubmitting}>
                 {isSubmitting ? 'Saving...' : 'Log Reading & Trigger AI Analysis'}
               </Button>
             </form>
           </CardContent>
         </Card>
 
-        {/* Recommendations List */}
+        {/* Real Recommendations List */}
         <Card data-testid="card-recommendations">
           <CardHeader>
             <CardTitle className="text-xl font-semibold">Recommendations</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recommendations.map((rec) => (
-                <div
-                  key={rec.id}
-                  className="p-4 rounded-lg border border-border space-y-3 hover-elevate"
-                  data-testid={`recommendation-${rec.id}`}
-                >
-                  <div className="flex items-center gap-2">
-                    {rec.source === 'AI' ? (
-                      <>
+              {recommendations.length === 0 ? (
+                 <p className="text-muted-foreground text-center py-4">No AI recommendations yet. Log 3 abnormal readings to trigger AI.</p>
+              ) : (
+                recommendations.map((rec) => (
+                  <div key={rec.id} className="p-4 rounded-lg border border-border space-y-3">
+                    <div className="flex items-center gap-2">
                         <Lightbulb className="h-4 w-4 text-primary" />
-                        <Badge variant="secondary" className="text-xs" data-testid={`badge-source-ai-${rec.id}`}>AI Generated</Badge>
-                      </>
-                    ) : (
-                      <>
-                        <UserCircle className="h-4 w-4 text-primary" />
-                        <Badge variant="default" className="text-xs" data-testid={`badge-source-specialist-${rec.id}`}>Specialist</Badge>
-                      </>
-                    )}
+                        <Badge variant="secondary" className="text-xs">
+                           {rec.source || 'AI Generated'}
+                        </Badge>
+                    </div>
+                    <p className="text-base leading-relaxed">{rec.advice}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(rec.created_at).toLocaleDateString()}
+                    </p>
                   </div>
-                  <p className="text-base leading-relaxed" data-testid={`text-advice-${rec.id}`}>{rec.advice}</p>
-                  <p className="text-sm text-muted-foreground" data-testid={`text-timestamp-${rec.id}`}>
-                    {new Date(rec.createdAt).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </CardContent>
         </Card>

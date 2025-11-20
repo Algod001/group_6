@@ -25,7 +25,7 @@ app.post('/api/ai/analyze', async (req, res) => {
   try {
     // 1. Fetch last 50 readings for this patient
     const { data: readings, error } = await supabase
-      .from('blood_sugar_readings')
+      .from('blood_sugar_reading')
       .select('*')
       .eq('patient_id', patientId)
       .order('measured_at', { ascending: false })
@@ -109,7 +109,7 @@ app.post('/api/reports/generate', async (req, res) => {
 
     // 2. Fetch Data
     const { data: readings, error } = await supabase
-      .from('blood_sugar_readings')
+      .from('blood_sugar_reading')
       .select('value, category, patient_id')
       .gte('measured_at', startDate)
       .lte('measured_at', endDate);
