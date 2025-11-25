@@ -1,8 +1,7 @@
-import { apiRequest } from "./queryClient"; // Uses the template's built-in fetcher if available, or standard fetch
+// glucose_frontend/client/src/lib/api.ts
 
-// If the template uses a specific fetch wrapper, we can use standard fetch for simplicity to ensure we hit YOUR backend
 export const api = {
-  // 1. AI Analysis
+  // 1. AI Analysis (Patient)
   analyze: async (patientId: string) => {
     const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ai/analyze`, {
       method: 'POST',
@@ -12,12 +11,22 @@ export const api = {
     return res.json();
   },
 
-  // 2. Generate Report
+  // 2. Generate Report (Admin)
   generateReport: async (year: number, month?: number) => {
     const res = await fetch(`${import.meta.env.VITE_API_URL}/api/reports/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ year, month })
+    });
+    return res.json();
+  },
+
+  // 3. Create User (Admin) - NEW ADDITION
+  createUser: async (userData: any) => {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/create-user`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData)
     });
     return res.json();
   }

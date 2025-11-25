@@ -155,21 +155,23 @@ export default function Landing() {
                 </div>
 
                 {!isLogin && (
-                  <div className="space-y-2">
-                    <Label>Role</Label>
-                    <Select 
-                      defaultValue="patient" 
-                      onValueChange={(val) => handleInputChange("role", val)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="patient">Patient</SelectItem>
-                        <SelectItem value="specialist">Specialist</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <input type="hidden" value="patient" />// only patient can create and log in
+
+                  // <div className="space-y-2">
+                  //   <Label>Role</Label>
+                  //   <Select 
+                  //     defaultValue="patient" 
+                  //     onValueChange={(val) => handleInputChange("role", val)}
+                  //   >
+                  //     <SelectTrigger>
+                  //       <SelectValue />
+                  //     </SelectTrigger>
+                  //     <SelectContent>
+                  //       <SelectItem value="patient">Patient</SelectItem>
+                  //       <SelectItem value="specialist">Specialist</SelectItem>
+                  //     </SelectContent>
+                  //   </Select>
+                  // </div>
                 )}
 
                 <Button type="submit" className="w-full" disabled={isLoading}>

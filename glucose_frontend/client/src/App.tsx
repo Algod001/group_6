@@ -1,172 +1,76 @@
 import { Switch, Route, useLocation } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { useAuth } from "@/context/AuthContext";
 import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider, useAuth } from "@/context/AuthContext";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/app-sidebar";
-import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import PatientDashboard from "@/pages/patient-dashboard";
 import SpecialistDashboard from "@/pages/specialist-dashboard";
-import StaffDashboard from "@/pages/staff-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
-import { useEffect } from "react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ROLE_DASHBOARDS } from "@shared/constants";
+import StaffDashboard from "@/pages/staff-dashboard";
+import { Loader2 } from "lucide-react";
 
-function ProtectedRoute({ 
-  component: Component, 
-  allowedRoles 
-}: { 
-  component: React.ComponentType; 
-  allowedRoles: string[] 
-}) {
-  const { user, loading } = useAuth();
-  const [, setLocation] = useLocation();
+function App() {
+  const { user, isLoading } = useAuth();
+  const [location, setLocation] = useLocation();
 
-  useEffect(() => {
-    if (!loading && !user) {
-      setLocation('/');
-    } else if (!loading && user && !allowedRoles.includes(user.role)) {
-      // Redirect to their correct dashboard based on role
-      setLocation(ROLE_DASHBOARDS[user.role] || '/');
-    }
-  }, [user, loading, allowedRoles, setLocation]);
-
-  if (loading) {
+  // 1. Loading State
+  if (isLoading) {
     return (
-      <div className="p-8 space-y-4">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-4 w-96" />
-        <div className="grid grid-cols-3 gap-4 mt-8">
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
-  if (!user || !allowedRoles.includes(user.role)) {
-    return null;
-  }
-
-  return <Component />;
-}
-
-function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-
-  const style = {
-    "--sidebar-width": "16rem",
-    "--sidebar-width-icon": "3rem",
-  };
-
+  // 2. Routing Logic
+  // If no user is logged in, force them to the Landing Page
   if (!user) {
-    return <>{children}</>;
+    return (
+      <>
+        <Landing />
+        <Toaster />
+      </>
+    );
   }
 
+  // 3. Role-Based Redirection
+  // If user IS logged in, show their specific dashboard
   return (
-    <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
-        <AppSidebar />
-        <div className="flex flex-col flex-1 overflow-hidden">
-          <header className="flex items-center justify-between p-4 border-b bg-card">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
-          </header>
-          <main className="flex-1 overflow-y-auto p-8 bg-background">
-            {children}
-          </main>
-        </div>
+    <>
+      <div className="min-h-screen bg-background">
+        {/* Top Navigation Bar (Visible only when logged in) */}
+        <nav className="border-b bg-white px-6 py-3 flex justify-between items-center">
+          <span className="font-bold text-xl text-primary">Glucose Monitor</span>
+          <div className="flex items-center gap-4">
+             <span className="text-sm text-muted-foreground capitalize">
+               {user.user_metadata?.role || 'User'}
+             </span>
+             <button 
+               onClick={() => window.location.reload()} 
+               className="text-sm text-red-500 hover:underline"
+             >
+               Sign Out
+             </button>
+          </div>
+        </nav>
+
+        {/* Dashboard Content */}
+        <main className="container mx-auto py-6 px-4">
+          {user.user_metadata?.role === 'patient' && <PatientDashboard />}
+          {user.user_metadata?.role === 'specialist' && <SpecialistDashboard />}
+          {user.user_metadata?.role === 'administrator' && <AdminDashboard />}
+          {user.user_metadata?.role === 'staff' && <StaffDashboard />}
+          
+          {/* Fallback if role is missing */}
+          {!['patient', 'specialist', 'administrator', 'staff'].includes(user.user_metadata?.role) && (
+            <div className="text-center mt-10">
+              <h2 className="text-xl">Account Role Error</h2>
+              <p>Your account does not have a valid role assigned.</p>
+            </div>
+          )}
+        </main>
       </div>
-    </SidebarProvider>
-  );
-}
-
-function Router() {
-  const { user } = useAuth();
-
-  return (
-    <Switch>
-      <Route path="/" component={Landing} />
-      
-      <Route path="/patient/dashboard">
-        <DashboardLayout>
-          <ProtectedRoute component={PatientDashboard} allowedRoles={['patient']} />
-        </DashboardLayout>
-      </Route>
-
-      <Route path="/patient/readings">
-        <DashboardLayout>
-          <ProtectedRoute component={PatientDashboard} allowedRoles={['patient']} />
-        </DashboardLayout>
-      </Route>
-
-      <Route path="/specialist/dashboard">
-        <DashboardLayout>
-          <ProtectedRoute component={SpecialistDashboard} allowedRoles={['specialist']} />
-        </DashboardLayout>
-      </Route>
-
-      <Route path="/specialist/patients">
-        <DashboardLayout>
-          <ProtectedRoute component={SpecialistDashboard} allowedRoles={['specialist']} />
-        </DashboardLayout>
-      </Route>
-
-      <Route path="/staff/dashboard">
-        <DashboardLayout>
-          <ProtectedRoute component={StaffDashboard} allowedRoles={['staff']} />
-        </DashboardLayout>
-      </Route>
-
-      <Route path="/staff/records">
-        <DashboardLayout>
-          <ProtectedRoute component={StaffDashboard} allowedRoles={['staff']} />
-        </DashboardLayout>
-      </Route>
-
-      <Route path="/staff/settings">
-        <DashboardLayout>
-          <ProtectedRoute component={StaffDashboard} allowedRoles={['staff']} />
-        </DashboardLayout>
-      </Route>
-
-      <Route path="/admin/dashboard">
-        <DashboardLayout>
-          <ProtectedRoute component={AdminDashboard} allowedRoles={['administrator']} />
-        </DashboardLayout>
-      </Route>
-
-      <Route path="/admin/users">
-        <DashboardLayout>
-          <ProtectedRoute component={AdminDashboard} allowedRoles={['administrator']} />
-        </DashboardLayout>
-      </Route>
-
-      <Route path="/admin/reports">
-        <DashboardLayout>
-          <ProtectedRoute component={AdminDashboard} allowedRoles={['administrator']} />
-        </DashboardLayout>
-      </Route>
-
-      <Route component={NotFound} />
-    </Switch>
-  );
-}
-
-function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <AuthProvider>
-          <Toaster />
-          <Router />
-        </AuthProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+      <Toaster />
+    </>
   );
 }
 
