@@ -1,48 +1,56 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Search, Filter, AlertCircle } from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { Search, Filter } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 export default function SpecialistDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState('All Patients');
-  const [patients, setPatients] = useState<any[]>([]); // Fixed: Added <any[]> to stop the error
+  const [patients, setPatients] = useState<any[]>([]);
+  
+  // New State for "View Details"
+  const [selectedPatient, setSelectedPatient] = useState<any>(null);
+  const [patientReadings, setPatientReadings] = useState<any[]>([]);
 
-  // Fetch Real Patients from Supabase
+  // 1. Fetch Patients
   useEffect(() => {
     const fetchPatients = async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('profiles')
         .select('*')
-        .eq('role', 'patient');
-      
+        .eq('role', 'patient'); // [cite: 118]
       if (data) setPatients(data);
     };
     fetchPatients();
   }, []);
 
-  // Fixed: Added missing dummy data for the chart so the code doesn't crash
-  const patientChartData = [
-    { date: 'Mon', value: 120 },
-    { date: 'Tue', value: 132 },
-    { date: 'Wed', value: 101 },
-    { date: 'Thu', value: 134 },
-    { date: 'Fri', value: 190 },
-    { date: 'Sat', value: 130 },
-    { date: 'Sun', value: 120 },
-  ];
+  // 2. Fetch Details when a patient is clicked [cite: 109]
+  const handleViewDetails = async (patient: any) => {
+    setSelectedPatient(patient);
+    const { data } = await supabase
+      .from('blood_sugar_reading')
+      .select('*')
+      .eq('patient_id', patient.id)
+      .order('timestamp', { ascending: false });
+    
+    if (data) setPatientReadings(data);
+  };
+
+  // 3. Filter Logic (Search by Name)
+  const filteredPatients = patients.filter(p => {
+    const matchesSearch = p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          p.email?.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesSearch;
+  });
 
   return (
     <div className="space-y-6">
@@ -66,27 +74,13 @@ export default function SpecialistDashboard() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <div className="flex items-center gap-2 w-full md:w-auto">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <select
-                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              >
-                <option>All Patients</option>
-                <option>Critical Alert</option>
-                <option>Normal Status</option>
-              </select>
-            </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Patient List */}
       <Card>
-        <CardHeader>
-          <CardTitle>Patient List</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Patient List</CardTitle></CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
@@ -98,7 +92,7 @@ export default function SpecialistDashboard() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {patients.map((patient) => (
+              {filteredPatients.map((patient) => (
                 <TableRow key={patient.id}>
                   <TableCell className="font-medium">{patient.full_name || 'Unnamed'}</TableCell>
                   <TableCell>{patient.email}</TableCell>
@@ -108,14 +102,20 @@ export default function SpecialistDashboard() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="sm">View Details</Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => handleViewDetails(patient)} // Connect the button
+                    >
+                      View Details
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
-              {patients.length === 0 && (
+              {filteredPatients.length === 0 && (
                 <TableRow>
                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                     No patients found in database.
+                     No patients found.
                    </TableCell>
                 </TableRow>
               )}
@@ -123,6 +123,48 @@ export default function SpecialistDashboard() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Patient Details Modal */}
+      <Dialog open={!!selectedPatient} onOpenChange={(open) => !open && setSelectedPatient(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Patient History: {selectedPatient?.full_name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <h3 className="font-semibold">Recent Readings</h3>
+            <div className="border rounded-md max-h-[400px] overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Value (mg/dL)</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Food</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {patientReadings.length === 0 ? (
+                    <TableRow><TableCell colSpan={4} className="text-center">No readings found.</TableCell></TableRow>
+                  ) : (
+                    patientReadings.map((reading) => (
+                      <TableRow key={reading.reading_id}>
+                        <TableCell>{new Date(reading.timestamp).toLocaleString()}</TableCell>
+                        <TableCell className="font-bold">{reading.value}</TableCell>
+                        <TableCell>
+                           <Badge variant={reading.category === 'Abnormal' ? 'destructive' : 'outline'}>
+                             {reading.category}
+                           </Badge>
+                        </TableCell>
+                        <TableCell>{reading.food_intake || '-'}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

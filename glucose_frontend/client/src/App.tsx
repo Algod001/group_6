@@ -1,4 +1,4 @@
-import { Switch, Route, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { useAuth } from "@/context/AuthContext";
 import { Toaster } from "@/components/ui/toaster";
 import Landing from "@/pages/landing";
@@ -7,12 +7,27 @@ import SpecialistDashboard from "@/pages/specialist-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
 import StaffDashboard from "@/pages/staff-dashboard";
 import { Loader2 } from "lucide-react";
+import { supabase } from "@/lib/supabase"; // Import Supabase
 
 function App() {
+  // @ts-ignore
   const { user, isLoading } = useAuth();
-  const [location, setLocation] = useLocation();
+  
+  // NEW: Real Logout Function
 
-  // 1. Loading State
+const handleLogout = async () => {
+  // 1. Attempt Supabase SignOut
+  await supabase.auth.signOut();
+  
+  // 2. FORCE CLEAR Local Storage (The Nuclear Option)
+  // This wipes the session token immediately so the app forgets who you are.
+  localStorage.clear();
+  sessionStorage.clear();
+
+  // 3. Force a hard redirect to the home page
+  window.location.href = "/";
+};
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -21,8 +36,6 @@ function App() {
     );
   }
 
-  // 2. Routing Logic
-  // If no user is logged in, force them to the Landing Page
   if (!user) {
     return (
       <>
@@ -32,20 +45,20 @@ function App() {
     );
   }
 
-  // 3. Role-Based Redirection
-  // If user IS logged in, show their specific dashboard
+  const role = user.role; 
+
   return (
     <>
       <div className="min-h-screen bg-background">
-        {/* Top Navigation Bar (Visible only when logged in) */}
         <nav className="border-b bg-white px-6 py-3 flex justify-between items-center">
           <span className="font-bold text-xl text-primary">Glucose Monitor</span>
           <div className="flex items-center gap-4">
              <span className="text-sm text-muted-foreground capitalize">
-               {user.user_metadata?.role || 'User'}
+               {role || 'User'}
              </span>
+             {/* NEW: Use handleLogout here */}
              <button 
-               onClick={() => window.location.reload()} 
+               onClick={handleLogout} 
                className="text-sm text-red-500 hover:underline"
              >
                Sign Out
@@ -53,18 +66,16 @@ function App() {
           </div>
         </nav>
 
-        {/* Dashboard Content */}
         <main className="container mx-auto py-6 px-4">
-          {user.user_metadata?.role === 'patient' && <PatientDashboard />}
-          {user.user_metadata?.role === 'specialist' && <SpecialistDashboard />}
-          {user.user_metadata?.role === 'administrator' && <AdminDashboard />}
-          {user.user_metadata?.role === 'staff' && <StaffDashboard />}
+          {role === 'patient' && <PatientDashboard />}
+          {role === 'specialist' && <SpecialistDashboard />}
+          {role === 'administrator' && <AdminDashboard />}
+          {role === 'staff' && <StaffDashboard />}
           
-          {/* Fallback if role is missing */}
-          {!['patient', 'specialist', 'administrator', 'staff'].includes(user.user_metadata?.role) && (
+          {!['patient', 'specialist', 'administrator', 'staff'].includes(role) && (
             <div className="text-center mt-10">
               <h2 className="text-xl">Account Role Error</h2>
-              <p>Your account does not have a valid role assigned.</p>
+              <p>Your account (Role: {role}) does not have a valid dashboard.</p>
             </div>
           )}
         </main>
