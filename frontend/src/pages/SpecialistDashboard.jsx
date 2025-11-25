@@ -1,0 +1,1 @@
+export default function SpecialistDashboard() { return <div className="p-10"><h1>Specialist Dashboard (Coming Soon)</h1></div>; }

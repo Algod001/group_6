@@ -1,0 +1,1 @@
+export default function StaffDashboard() { return <div className="p-10"><h1>Staff Dashboard (Coming Soon)</h1></div>; }
