@@ -1,75 +1,90 @@
-const analyzePattern = async (req, res) => {
+const { createClient } = require('@supabase/supabase-js');
+
+// Initialize Supabase Admin Client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+exports.analyzePattern = async (req, res) => {
   const { patientId } = req.body;
-  const supabase = req.app.locals.supabase;
 
   try {
-    // 1. Fetch last 50 readings
+    // 1. Fetch last 20 readings for this patient
     const { data: readings, error } = await supabase
       .from('blood_sugar_reading')
       .select('*')
       .eq('patient_id', patientId)
       .order('timestamp', { ascending: false })
-      .limit(50);
+      .limit(20);
 
     if (error) throw error;
 
-    // 2. Filter for Abnormal (High or Low)
-    const abnormalReadings = readings.filter(r => r.category === 'Abnormal');
-    
-    console.log(`AI Analysis: Found ${abnormalReadings.length} abnormal readings for Patient ${patientId}`);
+    const recommendations = [];
 
-    // 3. Pattern Detection Algorithm (Frequency Counting)
-    const triggerMap = {};
+    // 2. Analyze Data
+    if (!readings || readings.length === 0) {
+        recommendations.push("Welcome! Log your first reading to start receiving AI insights.");
+    } else {
+        // Filter for Abnormal readings
+        const abnormalReadings = readings.filter(r => r.category === 'Abnormal');
 
-    abnormalReadings.forEach(r => {
-      // Combine food and activity into one text stream
-      const text = `${r.food_intake || ''} ${r.activity || ''}`.toLowerCase();
-      
-      // Simple Tokenization: Split by comma or space
-      const tokens = text.split(/[\s,]+/).filter(t => t.length > 2); // Ignore small words
+        // 3. Look for Specific Food Patterns (Rule of 3)
+        const triggerCounts = {};
+        abnormalReadings.forEach(reading => {
+          const inputs = [
+            ...(reading.food_intake ? reading.food_intake.toLowerCase().split(',') : []),
+            ...(reading.activity ? reading.activity.toLowerCase().split(',') : [])
+          ];
+          inputs.forEach(item => {
+            const cleanItem = item.trim();
+            if (cleanItem) triggerCounts[cleanItem] = (triggerCounts[cleanItem] || 0) + 1;
+          });
+        });
 
-      tokens.forEach(token => {
-        triggerMap[token] = (triggerMap[token] || 0) + 1;
-      });
-    });
+        const detectedPatterns = Object.keys(triggerCounts).filter(key => triggerCounts[key] >= 3);
 
-    // 4. The "Rule of 3" Check
-    const patterns = Object.keys(triggerMap).filter(trigger => triggerMap[trigger] >= 3);
+        // --- TIER 1: Specific Patterns Found ---
+        if (detectedPatterns.length > 0) {
+            for (const trigger of detectedPatterns) {
+                recommendations.push(`Alert: Your sugar tends to spike after '${trigger}'. Try reducing the portion size.`);
+            }
+        } 
+        // --- TIER 2: No specific pattern, but High Readings ---
+        else if (abnormalReadings.length > 0) {
+            recommendations.push("We noticed some instability. Try a 15-minute walk after meals to help regulate your levels.");
+        } 
+        // --- TIER 3: All Good (Positive Reinforcement) ---
+        else {
+            recommendations.push("Great job! Your recent readings are stable. Keep up the consistent routine.");
+        }
+    }
 
-    const newRecommendations = [];
-
-    for (const trigger of patterns) {
-      const msg = `High blood sugar frequency detected associated with '${trigger}'. Consider adjusting habits.`;
-      
-      // Check if we already gave this advice
+    // 4. Save to Database (Avoid Duplicates)
+    const newSavedRecs = [];
+    for (const msg of recommendations) {
+      // Check if this EXACT message was sent in the last 24 hours
       const { data: existing } = await supabase
         .from('recommendations')
         .select('*')
         .eq('patient_id', patientId)
-        .eq('advice', msg);
+        .eq('advice', msg)
+        .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()); // Last 24h check
 
       if (!existing || existing.length === 0) {
-        // Save to Database
-        const { error: insertError } = await supabase.from('recommendations').insert({
+        const { data: inserted } = await supabase.from('recommendations').insert({
           patient_id: patientId,
           advice: msg,
           source: 'AI'
-        });
-        if (!insertError) newRecommendations.push(msg);
+        }).select();
+        if(inserted) newSavedRecs.push(inserted[0]);
       }
     }
 
-    res.json({ 
-      success: true, 
-      analyzed: abnormalReadings.length,
-      patternsFound: patterns, 
-      newRecommendations 
-    });
+    res.json({ success: true, newRecommendations: newSavedRecs });
 
   } catch (err) {
     console.error("AI Error:", err);
     res.status(500).json({ error: err.message });
   }
 };
-
-module.exports = { analyzePattern };
