@@ -28,7 +28,7 @@ export default function Signup() {
 
       // 2. Create Profile Entry with EXTRA FIELDS
       if (authData.user) {
-        const { error: profileError } = await supabase.from('profiles').insert({
+        const { error: profileError } = await supabase.from('profiles').upsert({
             id: authData.user.id,
             email: formData.email,
             full_name: formData.fullName,
