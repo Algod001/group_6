@@ -1,69 +1,132 @@
-const supabase = require('@supabase/supabase-js').createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-// ALGORITHM 2: Report Generation (Monthly/Yearly)
-exports.generateReport = async (req, res) => {
-  const { year, month } = req.body;
+// 1. Create User
+exports.createUser = async (req, res) => {
+  const { email, password, fullName, role } = req.body;
+  const supabase = req.app.locals.supabase;
 
   try {
-    // 1. Define Time Range
-    let startDate, endDate;
-    if (month) {
-      startDate = new Date(year, month - 1, 1).toISOString();
-      endDate = new Date(year, month, 0).toISOString();
-    } else {
-      startDate = new Date(year, 0, 1).toISOString();
-      endDate = new Date(year, 11, 31).toISOString();
+    // A. Create Auth User
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName }
+    });
+
+    if (authError) throw authError;
+
+    // B. Create Profile Entry (or update if trigger created it)
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ role: role, full_name: fullName })
+      .eq('id', authData.user.id);
+
+    if (profileError) {
+        // If update failed, maybe insert?
+        await supabase.from('profiles').insert({
+            id: authData.user.id,
+            email: email,
+            role: role,
+            full_name: fullName
+        });
     }
 
-    // 2. Fetch All Data for Period
+    res.json({ success: true, user: authData.user });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// 2. Edit User (NEW)
+exports.updateUser = async (req, res) => {
+    const { userId, fullName, role, email } = req.body;
+    const supabase = req.app.locals.supabase;
+
+    try {
+        // Update Profile Table
+        const { error } = await supabase
+            .from('profiles')
+            .update({ full_name: fullName, role: role, email: email })
+            .eq('id', userId);
+        
+        if (error) throw error;
+
+        // Ideally update Auth email too, but that requires re-verification logic
+        // For this scope, we just update the profile data.
+
+        res.json({ success: true, message: "User updated successfully" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// 3. Get All Users (NEW)
+exports.getAllUsers = async (req, res) => {
+    const supabase = req.app.locals.supabase;
+    const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true, data });
+};
+
+// 4. Generate Report (Algorithm 2)
+exports.generateReport = async (req, res) => {
+  const { year, month } = req.body;
+  const supabase = req.app.locals.supabase;
+
+  try {
+    // A. Define Timeframe
+    let startDate, endDate;
+    if (month) {
+        startDate = new Date(year, month - 1, 1).toISOString();
+        endDate = new Date(year, month, 0).toISOString();
+    } else {
+        startDate = new Date(year, 0, 1).toISOString();
+        endDate = new Date(year, 11, 31).toISOString();
+    }
+
+    // B. Fetch Data
     const { data: readings, error } = await supabase
       .from('blood_sugar_reading')
-      .select('value, category, patient_id, food_intake, activity')
+      .select('*')
       .gte('timestamp', startDate)
       .lte('timestamp', endDate);
 
     if (error) throw error;
 
     if (!readings || readings.length === 0) {
-      return res.json({ success: true, report: null, message: "No data found" });
+        return res.json({ success: true, report: { message: "No data for this period" }});
     }
 
-    // 3. Calculate Stats
+    // C. Calculate Stats
     const totalReadings = readings.length;
     const uniquePatients = new Set(readings.map(r => r.patient_id)).size;
-    const abnormalReadings = readings.filter(r => r.category === 'Abnormal');
-    
-    const avgSugar = readings.reduce((sum, r) => sum + r.value, 0) / totalReadings;
+    const avgSugar = readings.reduce((acc, r) => acc + r.value, 0) / totalReadings;
     const highest = Math.max(...readings.map(r => r.value));
     const lowest = Math.min(...readings.map(r => r.value));
-
-    // 4. "Top Triggers" Algorithm (Word Frequency in Abnormal Readings)
+    
+    // D. Algorithm: Top Triggers (Frequency Count)
+    const abnormalReadings = readings.filter(r => r.category === 'Abnormal');
     const triggerMap = {};
     abnormalReadings.forEach(r => {
-      const text = (r.food_intake + " " + r.activity).toLowerCase();
-      const words = text.split(/[\s,]+/);
-      words.forEach(w => {
-        if (w.length > 3 && !['with', 'after', 'before', 'some'].includes(w)) {
-          triggerMap[w] = (triggerMap[w] || 0) + 1;
-        }
-      });
+        const words = `${r.food_intake} ${r.activity}`.toLowerCase().split(/[\s,]+/);
+        words.forEach(w => {
+            if(w.length > 3) triggerMap[w] = (triggerMap[w] || 0) + 1;
+        });
     });
-
-    // Sort by frequency and take top 3
+    
+    // Sort triggers by frequency
     const topTriggers = Object.entries(triggerMap)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(entry => entry[0])
-      .join(', ');
+        .sort((a, b) => b[1] - a[1]) // Sort descending
+        .slice(0, 3) // Top 3
+        .map(entry => `${entry[0]} (${entry[1]})`)
+        .join(', ');
 
     const reportData = {
-      total_active_patients: uniquePatients,
-      avg_sugar_level: avgSugar.toFixed(1),
-      highest_reading: highest,
-      lowest_reading: lowest,
+      period: `${year}-${month || 'All'}`,
+      total_patients: uniquePatients,
+      avg_sugar: avgSugar.toFixed(1),
+      highest,
+      lowest,
       abnormal_count: abnormalReadings.length,
       top_triggers: topTriggers || "None detected"
     };
@@ -71,44 +134,7 @@ exports.generateReport = async (req, res) => {
     res.json({ success: true, report: reportData });
 
   } catch (err) {
+    console.error("Report Error:", err);
     res.status(500).json({ error: err.message });
   }
 };
-
-// Create Account (Admin/Staff/Specialist)
-exports.createUser = async (req, res) => {
-  const { email, password, fullName, role } = req.body;
-  try {
-    // 1. Create in Auth
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name: fullName, role } // Store role in metadata
-    });
-
-    if (authError) throw authError;
-
-    // 2. Create in Public Profiles (Trigger usually handles this, but we ensure role is set)
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({ role: role, full_name: fullName })
-      .eq('id', authData.user.id);
-
-    res.json({ success: true, user: authData.user });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-// Modify User (Update Profile)
-exports.updateUser = async (req, res) => {
-    const { userId, updates } = req.body;
-    try {
-        const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
-        if(error) throw error;
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-}
