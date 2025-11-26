@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { Link } from 'react-router-dom';
+import { Lock, Mail } from 'lucide-react';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -13,6 +14,7 @@ export default function Login() {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      // Redirect is handled automatically by App.jsx listener
     } catch (error) {
       alert(error.message);
     } finally {
@@ -21,36 +23,46 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="max-w-md w-full p-8 bg-white rounded-lg shadow-md">
-        <h2 className="text-2xl font-bold text-center mb-6">Glucose Monitor Login</h2>
+    <div className="flex items-center justify-center min-h-screen bg-slate-50">
+      <div className="w-full max-w-md p-8 bg-white rounded-lg shadow-md">
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-bold text-slate-800">Welcome Back</h1>
+          <p className="text-slate-600">Sign in to monitor your health</p>
+        </div>
         <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Email</label>
-            <input 
-              type="email" required 
-              className="mt-1 block w-full rounded-md border border-gray-300 p-2"
-              value={email} onChange={(e) => setEmail(e.target.value)} 
+          <div className="relative">
+            <Mail className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <input
+              type="email"
+              placeholder="Email address"
+              required
+              className="w-full pl-10 p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Password</label>
-            <input 
-              type="password" required 
-              className="mt-1 block w-full rounded-md border border-gray-300 p-2"
-              value={password} onChange={(e) => setPassword(e.target.value)} 
+          <div className="relative">
+            <Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <input
+              type="password"
+              placeholder="Password"
+              required
+              className="w-full pl-10 p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
             />
           </div>
-          <button 
-            type="submit" disabled={loading}
-            className="w-full bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-2 text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors"
           >
-            {loading ? 'Logging in...' : 'Sign In'}
+            {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
-        <div className="mt-4 text-center text-sm">
-          Don't have an account? <Link to="/signup" className="text-blue-600">Register as Patient</Link>
-        </div>
+        <p className="mt-4 text-sm text-center text-slate-600">
+          Don't have an account? <Link to="/signup" className="text-blue-600 hover:underline">Register here</Link>
+        </p>
       </div>
     </div>
   );

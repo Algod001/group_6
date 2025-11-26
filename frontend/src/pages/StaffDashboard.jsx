@@ -1,142 +1,104 @@
 import { useState, useEffect } from 'react';
-import { Save, Activity, Users } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import { Save, Activity, UserPlus } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export default function StaffDashboard() {
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState('assignment');
+  
   const [thresholds, setThresholds] = useState([]);
   const [patients, setPatients] = useState([]);
-  const [activeTab, setActiveTab] = useState('config');
-  const [loading, setLoading] = useState(true);
+  const [specialists, setSpecialists] = useState([]);
+  const [selectedPatient, setSelectedPatient] = useState('');
+  const [selectedSpecialist, setSelectedSpecialist] = useState('');
 
   useEffect(() => {
-    // 1. Fetch Thresholds from Backend
-    fetch('http://localhost:5000/api/staff/thresholds')
-      .then(res => res.json())
-      .then(data => {
-         if(data.success && data.data.length > 0) setThresholds(data.data);
-         else {
-            // Default fallback if DB is empty
-            setThresholds([
-                { name: 'Normal', min_value: 70, max_value: 130 },
-                { name: 'Abnormal', min_value: 0, max_value: 70 },
-                { name: 'Borderline', min_value: 130, max_value: 180 }
-            ]);
-         }
-      })
-      .catch(err => console.error("API Error:", err));
-
-    // 2. Fetch Patients (Read Only) directly from Supabase
-    const fetchPatients = async () => {
-        const { data } = await supabase.from('profiles').select('*').eq('role', 'patient');
-        if(data) setPatients(data);
-        setLoading(false);
-    };
-    fetchPatients();
+    fetchData();
   }, []);
 
-  const handleUpdate = async (t) => {
-    try {
-      await fetch('http://localhost:5000/api/staff/thresholds/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: t.name, min: t.min_value, max: t.max_value, staffId: 1 })
-      });
-      alert("Threshold updated successfully!");
-    } catch(err) { alert("Error updating threshold"); }
+  const fetchData = async () => {
+    const res1 = await fetch('http://localhost:5001/api/staff/thresholds');
+    const data1 = await res1.json();
+    if (data1.success) setThresholds(data1.data);
+
+    const res2 = await fetch('http://localhost:5001/api/staff/assignment-data');
+    const data2 = await res2.json();
+    if (data2.success) {
+        setPatients(data2.patients);
+        setSpecialists(data2.specialists);
+    }
   };
 
-  if (loading) return <div className="p-10 text-center">Loading Staff Portal...</div>;
+  const handleAssign = async () => {
+    if(!selectedPatient || !selectedSpecialist) return alert("Select both users");
+    try {
+        const res = await fetch('http://localhost:5001/api/staff/assign-patient', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                patientId: selectedPatient,
+                specialistId: selectedSpecialist,
+                staffId: user.id
+            })
+        });
+        const data = await res.json();
+        if(data.success) alert("Patient Assigned Successfully!");
+    } catch(e) { alert("Error assigning"); }
+  };
 
   return (
-    <div className="max-w-5xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6 text-purple-900">Clinic Staff Dashboard</h1>
+    <div className="max-w-6xl mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-6 text-purple-900">Clinic Staff Console</h1>
       
-      {/* Tabs */}
-      <div className="flex gap-4 mb-6 border-b">
-        <button 
-            onClick={() => setActiveTab('config')}
-            className={`pb-2 px-4 ${activeTab === 'config' ? 'border-b-2 border-purple-600 font-bold text-purple-600' : 'text-gray-500'}`}
-        >
-            System Configuration
+      <div className="flex gap-4 mb-8 border-b">
+        <button onClick={() => setActiveTab('assignment')} 
+            className={`px-6 py-3 font-medium ${activeTab === 'assignment' ? 'border-b-2 border-purple-600 text-purple-600' : 'text-gray-500'}`}>
+            Assign Specialists
         </button>
-        <button 
-            onClick={() => setActiveTab('patients')}
-            className={`pb-2 px-4 ${activeTab === 'patients' ? 'border-b-2 border-purple-600 font-bold text-purple-600' : 'text-gray-500'}`}
-        >
-            Patient Records
+        <button onClick={() => setActiveTab('thresholds')} 
+            className={`px-6 py-3 font-medium ${activeTab === 'thresholds' ? 'border-b-2 border-purple-600 text-purple-600' : 'text-gray-500'}`}>
+            Thresholds
         </button>
       </div>
 
-      {/* Tab 1: Thresholds */}
-      {activeTab === 'config' && (
-        <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><Activity className="text-purple-600"/> Blood Sugar Thresholds</h2>
-            <p className="text-sm text-gray-500 mb-4">Configure the AI Engine's detection logic.</p>
-            
+      {activeTab === 'thresholds' && (
+        <div className="bg-white p-8 rounded-lg shadow-sm border">
+            <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Activity className="h-5 w-5 text-purple-600"/> Blood Sugar Thresholds</h2>
             <div className="space-y-4">
-            {thresholds.map((t, idx) => (
-                <div key={idx} className="flex items-center gap-4 border-b pb-4">
-                    <div className="w-32 font-bold">{t.name}</div>
-                    
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-500">Min:</span>
-                        <input type="number" className="border p-2 rounded w-24" value={t.min_value}
-                        onChange={(e) => {
-                            const newT = [...thresholds];
-                            newT[idx].min_value = Number(e.target.value);
-                            setThresholds(newT);
-                        }}/>
+                {thresholds.map(t => (
+                    <div key={t.category_id} className="flex justify-between items-center p-4 bg-gray-50 rounded border">
+                        <span className="font-semibold w-32 text-gray-700">{t.name}</span>
+                        <div className="text-sm text-gray-600">Range: {t.min_value} - {t.max_value} mg/dL</div>
                     </div>
-
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-500">Max:</span>
-                        <input type="number" className="border p-2 rounded w-24" value={t.max_value}
-                        onChange={(e) => {
-                            const newT = [...thresholds];
-                            newT[idx].max_value = Number(e.target.value);
-                            setThresholds(newT);
-                        }}/>
-                    </div>
-
-                    <button onClick={() => handleUpdate(t)} className="bg-purple-600 text-white p-2 rounded hover:bg-purple-700 ml-auto">
-                        <Save size={18}/> Update
-                    </button>
-                </div>
-            ))}
+                ))}
             </div>
+            <p className="text-sm text-gray-500 mt-4 italic">* Threshold updates require API configuration</p>
         </div>
       )}
 
-      {/* Tab 2: Patient Records (Read Only) */}
-      {activeTab === 'patients' && (
-        <div className="bg-white p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><Users className="text-blue-600"/> Administrative Records</h2>
-            <table className="w-full text-left text-sm">
-                <thead className="bg-gray-100 text-gray-600">
-                    <tr>
-                        <th className="p-3">Full Name</th>
-                        <th className="p-3">Email Contact</th>
-                        <th className="p-3">HC Number</th>
-                        <th className="p-3">Gender</th>
-                        <th className="p-3">Joined</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {patients.length === 0 ? (
-                        <tr><td colSpan="5" className="p-4 text-center text-gray-500">No patients found.</td></tr>
-                    ) : (
-                        patients.map(p => (
-                            <tr key={p.id} className="border-b hover:bg-gray-50">
-                                <td className="p-3 font-medium">{p.full_name || 'N/A'}</td>
-                                <td className="p-3 text-gray-500">{p.email}</td>
-                                <td className="p-3">{p.health_care_number || '-'}</td>
-                                <td className="p-3 capitalize">{p.gender || '-'}</td>
-                                <td className="p-3">{new Date(p.created_at).toLocaleDateString()}</td>
-                            </tr>
-                        ))
-                    )}
-                </tbody>
-            </table>
+      {activeTab === 'assignment' && (
+        <div className="bg-white p-8 rounded-lg shadow-sm border">
+            <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><UserPlus className="h-5 w-5 text-green-600"/> Assign Specialist</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Select Patient</label>
+                    <select className="w-full border p-3 rounded bg-gray-50" onChange={e => setSelectedPatient(e.target.value)}>
+                        <option value="">-- Choose Patient --</option>
+                        {patients.map(p => <option key={p.id} value={p.id}>{p.full_name} ({p.email})</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Select Specialist</label>
+                    <select className="w-full border p-3 rounded bg-gray-50" onChange={e => setSelectedSpecialist(e.target.value)}>
+                        <option value="">-- Choose Specialist --</option>
+                        {specialists.map(s => <option key={s.id} value={s.id}>{s.full_name} ({s.email})</option>)}
+                    </select>
+                </div>
+            </div>
+            <div className="mt-8 flex justify-end">
+                <button onClick={handleAssign} className="bg-purple-600 text-white px-8 py-2.5 rounded hover:bg-purple-700">Confirm Assignment</button>
+            </div>
         </div>
       )}
     </div>
